@@ -1,0 +1,75 @@
+const express = require('express');
+const bodyParser = require('body-parser');
+const axios = require('axios');
+const { GoogleGenerativeAI } = require('@google/generative-ai');
+
+const PAGE_ACCESS_TOKEN = 'YOUR_FB_PAGE_ACCESS_TOKEN';
+const VERIFY_TOKEN = 'YOUR_VERIFY_TOKEN';
+const GEMINI_API_KEY = 'YOUR_GEMINI_API_KEY';
+
+const app = express().use(bodyParser.json());
+const port = process.env.PORT || 3000;
+
+// Initialize Gemini AI
+const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+const model = genAI.getGenerativeModel({ model: "gemini-pro" });
+
+app.get('/webhook', (req, res) => {
+  const mode = req.query['hub.mode'];
+  const token = req.query['hub.verify_token'];
+  const challenge = req.query['hub.challenge'];
+
+  if (mode && token && mode === 'subscribe' && token === VERIFY_TOKEN) {
+    console.log('WEBHOOK_VERIFIED');
+    res.status(200).send(challenge);
+  } else {
+    res.sendStatus(403);
+  }
+});
+
+app.post('/webhook', async (req, res) => {
+  const body = req.body;
+
+  if (body.object === 'page') {
+    for (const entry of body.entry) {
+      const webhook_event = entry.messaging[0];
+      const sender_psid = webhook_event.sender.id;
+
+      if (webhook_event.message && webhook_event.message.text) {
+        const received_message = webhook_event.message.text.toLowerCase();
+
+        if (received_message.startsWith('/editcmd')) {
+          await sendMessage(sender_psid, 'Command edit mode activated.');
+        } else if (received_message.startsWith('/ai')) {
+          const prompt = received_message.replace('/ai', '').trim();
+          const result = await model.generateContent(prompt);
+          const response = await result.response;
+          const text = response.text();
+          await sendMessage(sender_psid, text);
+        } else {
+          await sendMessage(sender_psid, 'Unknown command. Use /ai or /editcmd.');
+        }
+      }
+    }
+    res.status(200).send('EVENT_RECEIVED');
+  } else {
+    res.sendStatus(404);
+  }
+});
+
+async function sendMessage(sender_psid, responseText) {
+  const requestBody = {
+    recipient: { id: sender_psid },
+    message: { text: responseText },
+  };
+
+  try {
+    await axios.post(https://graph.facebook.com/v17.0/me/messages?access_token=${PAGE_ACCESS_TOKEN}, requestBody);
+  } catch (err) {
+    console.error('Unable to send message:' + err);
+  }
+}
+
+app.listen(port, () => {
+  console.log(Server is running on port ${port});
+});
